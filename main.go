@@ -28,24 +28,25 @@ func newServer(cfg Config) http.Handler {
 
 	mux.HandleFunc("GET /healthz", healthHandler)
 
-	// Helper to register a route with CORS
+	// registerWithCORS registers a method+path route wrapped in corsMiddleware,
+	// and — the first time this path is seen — also registers a standalone
+	// "OPTIONS <path>" route for the CORS preflight. Go's ServeMux
+	// exact-method patterns ("POST /x") never match an OPTIONS request on
+	// their own, so without this, every preflight would 404 (or, for a path
+	// already registered under a different method, 405) before corsMiddleware
+	// ever ran. Auto-registering here — rather than maintaining a separate
+	// list of CORS-enabled paths — makes it structurally impossible to add a
+	// route and forget its OPTIONS handler.
+	optionsRegistered := map[string]bool{}
 	registerWithCORS := func(method, path string, handler http.Handler) {
-		h := corsMiddleware(handler)
-		mux.Handle(method+" "+path, h)
-	}
-
-	// Helper to register OPTIONS handler
-	registerOptions := func(path string) {
-		corsOnlyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if allowedOrigins[origin] {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			}
-			w.WriteHeader(http.StatusNoContent)
-		})
-		mux.Handle("OPTIONS "+path, corsOnlyHandler)
+		mux.Handle(method+" "+path, corsMiddleware(handler))
+		if !optionsRegistered[path] {
+			mux.HandleFunc("OPTIONS "+path, func(w http.ResponseWriter, r *http.Request) {
+				setCORSHeaders(w, r.Header.Get("Origin"))
+				w.WriteHeader(http.StatusNoContent)
+			})
+			optionsRegistered[path] = true
+		}
 	}
 
 	// Auth routes
@@ -77,17 +78,6 @@ func newServer(cfg Config) http.Handler {
 	registerWithCORS("POST", "/billing/checkout-session", requireAuth(pool, checkoutSessionHandler(cfg)))
 	mux.HandleFunc("POST /billing/webhook", billingWebhookHandler(cfg))
 	registerWithCORS("GET", "/billing/status", requireAuth(pool, billingStatusHandler(pool)))
-
-	// Register OPTIONS handlers for all CORS-enabled routes
-	corsEnabledPaths := []string{
-		"/auth/signup", "/auth/login", "/auth/logout", "/me",
-		"/orgs/current/members", "/orgs/current/members/{userId}",
-		"/projects", "/projects/{id}", "/projects/{id}/tasks", "/tasks/{id}",
-		"/billing/checkout-session", "/billing/status",
-	}
-	for _, path := range corsEnabledPaths {
-		registerOptions(path)
-	}
 
 	return mux
 }

@@ -38,6 +38,22 @@ func TestServerAppliesCORSToAuthRoutes(t *testing.T) {
 	}
 }
 
+func TestServerAppliesCORSToWildcardRoutes(t *testing.T) {
+	pool := setupTestDB(t)
+	req := httptest.NewRequest(http.MethodOptions, "/projects/abc123", nil)
+	req.Header.Set("Origin", "https://portfolio-site-gold-alpha.vercel.app")
+	rec := httptest.NewRecorder()
+
+	newServer(Config{Pool: pool}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for a wildcard-path preflight, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://portfolio-site-gold-alpha.vercel.app" {
+		t.Fatalf("expected CORS header on wildcard-path preflight, got %q", got)
+	}
+}
+
 func TestServerOmitsCORSForDisallowedOrigin(t *testing.T) {
 	pool := setupTestDB(t)
 	req := httptest.NewRequest(http.MethodOptions, "/auth/login", nil)
