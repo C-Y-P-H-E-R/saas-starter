@@ -10,10 +10,15 @@ Requires a local Postgres. Export `DATABASE_URL` before running tests or
 the server, e.g.:
 
     export DATABASE_URL=postgres://postgres:postgres@localhost:5432/saas_starter_dev?sslmode=disable
-    go run .
+    GOWORK=off go run .
 
 ## Testing
 
-    go test ./...
+    GOWORK=off go test ./...
 
 Tests that touch Postgres skip automatically if `DATABASE_URL` isn't set.
+
+Note: if this checkout sits under a parent Go workspace (a `go.work` file
+above this directory that doesn't list this module), plain `go` commands
+fail with "directory prefix . does not contain modules listed in go.work" —
+`GOWORK=off` bypasses that.
