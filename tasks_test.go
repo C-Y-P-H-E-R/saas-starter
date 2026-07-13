@@ -42,6 +42,24 @@ func TestCreateAndListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasksReturns404ForOtherOrgProject(t *testing.T) {
+	pool := setupTestDB(t)
+	tokenA := signupAndLogin(t, pool, "owner@acme.test")
+	tokenB := signupAndLogin(t, pool, "owner@other.test")
+	projectID := createProject(t, pool, tokenA, "Acme Internal")
+	createTask(t, pool, tokenA, projectID, "Confidential task")
+
+	req := httptest.NewRequest(http.MethodGet, "/projects/"+projectID+"/tasks", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenB)
+	req.SetPathValue("id", projectID)
+	rec := httptest.NewRecorder()
+	requireAuth(pool, listTasksHandler(pool)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 listing tasks under another org's project, got %d", rec.Code)
+	}
+}
+
 func TestCreateTaskReturns404ForOtherOrgProject(t *testing.T) {
 	pool := setupTestDB(t)
 	tokenA := signupAndLogin(t, pool, "owner@acme.test")
@@ -130,5 +148,22 @@ func TestDeleteTaskReturns404ForOtherOrg(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 deleting another org's task, got %d", rec.Code)
+	}
+}
+
+func TestDeleteTaskSucceedsForOwningOrg(t *testing.T) {
+	pool := setupTestDB(t)
+	token := signupAndLogin(t, pool, "owner@acme.test")
+	projectID := createProject(t, pool, token, "Website Redesign")
+	taskID := createTask(t, pool, token, projectID, "Write homepage copy")
+
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/"+taskID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", taskID)
+	rec := httptest.NewRecorder()
+	requireAuth(pool, deleteTaskHandler(pool)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
 	}
 }

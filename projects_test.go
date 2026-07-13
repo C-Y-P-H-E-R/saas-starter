@@ -39,6 +39,25 @@ func TestCreateAndListProjects(t *testing.T) {
 	}
 }
 
+func TestListProjectsOnlyReturnsCallersOrg(t *testing.T) {
+	pool := setupTestDB(t)
+	tokenA := signupAndLogin(t, pool, "owner@acme.test")
+	tokenB := signupAndLogin(t, pool, "owner@other.test")
+	createProject(t, pool, tokenA, "Acme Internal")
+	createProject(t, pool, tokenB, "Other Co Internal")
+
+	req := httptest.NewRequest(http.MethodGet, "/projects", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenA)
+	rec := httptest.NewRecorder()
+	requireAuth(pool, listProjectsHandler(pool)).ServeHTTP(rec, req)
+
+	var projects []Project
+	json.Unmarshal(rec.Body.Bytes(), &projects)
+	if len(projects) != 1 || projects[0].Name != "Acme Internal" {
+		t.Fatalf("expected only the caller's own org's project, got %+v", projects)
+	}
+}
+
 func TestGetProjectReturns404ForOtherOrg(t *testing.T) {
 	pool := setupTestDB(t)
 	tokenA := signupAndLogin(t, pool, "owner@acme.test")

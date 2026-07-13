@@ -26,7 +26,10 @@ func listTasksHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		ctx := r.Context()
 
 		var exists bool
-		pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND org_id = $2)", projectID, s.OrgID).Scan(&exists)
+		if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND org_id = $2)", projectID, s.OrgID).Scan(&exists); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		if !exists {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -69,7 +72,10 @@ func createTaskHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		var exists bool
-		pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND org_id = $2)", projectID, s.OrgID).Scan(&exists)
+		if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND org_id = $2)", projectID, s.OrgID).Scan(&exists); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		if !exists {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
