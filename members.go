@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -106,20 +107,37 @@ func updateMemberRoleHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(ctx)
+
 		var currentRole string
-		if err := pool.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID).Scan(&currentRole); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID).Scan(&currentRole); err != nil {
 			http.Error(w, "member not found", http.StatusNotFound)
 			return
 		}
 
 		if currentRole == "owner" && payload.Role != "owner" {
-			if lastOwner(ctx, pool, s.OrgID) {
+			isLast, err := lastOwner(ctx, tx, s.OrgID)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if isLast {
 				http.Error(w, "cannot demote the last owner", http.StatusBadRequest)
 				return
 			}
 		}
 
-		if _, err := pool.Exec(ctx, "UPDATE memberships SET role = $1 WHERE user_id = $2 AND org_id = $3", payload.Role, targetUserID, s.OrgID); err != nil {
+		if _, err := tx.Exec(ctx, "UPDATE memberships SET role = $1 WHERE user_id = $2 AND org_id = $3", payload.Role, targetUserID, s.OrgID); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := tx.Commit(ctx); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -139,18 +157,37 @@ func removeMemberHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		targetUserID := r.PathValue("userId")
 		ctx := r.Context()
 
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback(ctx)
+
 		var currentRole string
-		if err := pool.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID).Scan(&currentRole); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID).Scan(&currentRole); err != nil {
 			http.Error(w, "member not found", http.StatusNotFound)
 			return
 		}
 
-		if currentRole == "owner" && lastOwner(ctx, pool, s.OrgID) {
-			http.Error(w, "cannot remove the last owner", http.StatusBadRequest)
+		if currentRole == "owner" {
+			isLast, err := lastOwner(ctx, tx, s.OrgID)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if isLast {
+				http.Error(w, "cannot remove the last owner", http.StatusBadRequest)
+				return
+			}
+		}
+
+		if _, err := tx.Exec(ctx, "DELETE FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		if _, err := pool.Exec(ctx, "DELETE FROM memberships WHERE user_id = $1 AND org_id = $2", targetUserID, s.OrgID); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -159,8 +196,24 @@ func removeMemberHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
-func lastOwner(ctx context.Context, pool *pgxpool.Pool, orgID string) bool {
-	var count int
-	pool.QueryRow(ctx, "SELECT COUNT(*) FROM memberships WHERE org_id = $1 AND role = 'owner'", orgID).Scan(&count)
-	return count <= 1
+// lastOwner locks the org's owner rows for the duration of tx, so a
+// concurrent transaction demoting/removing a different owner of the same
+// org blocks until this one commits or rolls back — closing the race where
+// two simultaneous requests could each observe "not the last owner" and
+// both proceed, leaving the org with zero owners.
+func lastOwner(ctx context.Context, tx pgx.Tx, orgID string) (bool, error) {
+	rows, err := tx.Query(ctx, "SELECT user_id FROM memberships WHERE org_id = $1 AND role = 'owner' FOR UPDATE", orgID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return count <= 1, nil
 }
