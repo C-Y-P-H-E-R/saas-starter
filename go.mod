@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.5.5
+	github.com/stripe/stripe-go/v81 v81.4.0
 	golang.org/x/crypto v0.40.0
 )
 

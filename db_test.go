@@ -28,7 +28,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 
 func truncateAll(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, "TRUNCATE orgs, users, memberships, sessions, projects, tasks CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE orgs, users, memberships, sessions, projects, tasks, processed_stripe_events CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
