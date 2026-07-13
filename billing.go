@@ -14,6 +14,7 @@ import (
 )
 
 const frontendBaseURL = "https://portfolio-site-gold-alpha.vercel.app"
+const maxWebhookBodyBytes = 64 << 10
 
 func checkoutSessionHandler(cfg Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +63,7 @@ func checkoutSessionHandler(cfg Config) http.HandlerFunc {
 
 func billingWebhookHandler(cfg Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "cannot read body", http.StatusBadRequest)
