@@ -28,9 +28,13 @@ func newServer(cfg Config) http.Handler {
 	return mux
 }
 
+const startupTimeout = 10 * time.Second
+
 func main() {
-	ctx := context.Background()
-	pool, err := newPool(ctx)
+	startupCtx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+	defer cancel()
+
+	pool, err := newPool(startupCtx)
 	if err != nil {
 		log.Fatalf("db connection failed: %v", err)
 	}
