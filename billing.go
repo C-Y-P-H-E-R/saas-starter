@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,8 +89,10 @@ func billingWebhookHandler(cfg Config) http.HandlerFunc {
 		case "checkout.session.completed":
 			var sess stripe.CheckoutSession
 			if err := json.Unmarshal(event.Data.Raw, &sess); err == nil {
-				cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = 'pro', stripe_subscription_id = $1 WHERE stripe_customer_id = $2",
-					sess.Subscription.ID, sess.Customer.ID)
+				if _, err := cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = 'pro', stripe_subscription_id = $1 WHERE stripe_customer_id = $2",
+					sess.Subscription.ID, sess.Customer.ID); err != nil {
+					log.Printf("billing webhook: failed to apply checkout.session.completed for event %s: %v", event.ID, err)
+				}
 			}
 		case "customer.subscription.updated":
 			var sub stripe.Subscription
@@ -98,13 +101,17 @@ func billingWebhookHandler(cfg Config) http.HandlerFunc {
 				if sub.Status == stripe.SubscriptionStatusActive || sub.Status == stripe.SubscriptionStatusTrialing {
 					plan = "pro"
 				}
-				cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = $1, stripe_subscription_id = $2 WHERE stripe_customer_id = $3",
-					plan, sub.ID, sub.Customer.ID)
+				if _, err := cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = $1, stripe_subscription_id = $2 WHERE stripe_customer_id = $3",
+					plan, sub.ID, sub.Customer.ID); err != nil {
+					log.Printf("billing webhook: failed to apply customer.subscription.updated for event %s: %v", event.ID, err)
+				}
 			}
 		case "customer.subscription.deleted":
 			var sub stripe.Subscription
 			if err := json.Unmarshal(event.Data.Raw, &sub); err == nil {
-				cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = 'free' WHERE stripe_customer_id = $1", sub.Customer.ID)
+				if _, err := cfg.Pool.Exec(ctx, "UPDATE orgs SET plan = 'free' WHERE stripe_customer_id = $1", sub.Customer.ID); err != nil {
+					log.Printf("billing webhook: failed to apply customer.subscription.deleted for event %s: %v", event.ID, err)
+				}
 			}
 		}
 
