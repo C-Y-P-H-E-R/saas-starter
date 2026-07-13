@@ -1,6 +1,6 @@
 module github.com/C-Y-P-H-E-R/saas-starter
 
-go 1.25.0
+go 1.22
 
 require github.com/jackc/pgx/v5 v5.5.5
 
