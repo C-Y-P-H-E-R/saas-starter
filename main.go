@@ -26,8 +26,6 @@ func newServer(cfg Config) http.Handler {
 	pool := cfg.Pool
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /healthz", healthHandler)
-
 	// registerWithCORS registers a method+path route wrapped in corsMiddleware,
 	// and — the first time this path is seen — also registers a standalone
 	// "OPTIONS <path>" route for the CORS preflight. Go's ServeMux
@@ -48,6 +46,9 @@ func newServer(cfg Config) http.Handler {
 			optionsRegistered[path] = true
 		}
 	}
+
+	// Health (CORS so demo pages can probe cold starts from the browser)
+	registerWithCORS("GET", "/healthz", http.HandlerFunc(healthHandler))
 
 	// Auth routes
 	registerWithCORS("POST", "/auth/signup", signupHandler(pool))

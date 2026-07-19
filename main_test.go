@@ -78,3 +78,13 @@ func TestServerWebhookRouteHasNoCORS(t *testing.T) {
 		t.Fatalf("expected no CORS header on webhook route, got %q", got)
 	}
 }
+
+func TestHealthzHasCORS(t *testing.T) {
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.Header.Set("Origin", "https://portfolio-site-gold-alpha.vercel.app")
+	rec := httptest.NewRecorder()
+	newServer(Config{}).ServeHTTP(rec, req)
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://portfolio-site-gold-alpha.vercel.app" {
+		t.Fatalf("expected CORS header to echo allowed origin on /healthz, got %q", got)
+	}
+}
